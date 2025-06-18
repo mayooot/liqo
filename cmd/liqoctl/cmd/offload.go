@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,7 +30,7 @@ import (
 	"github.com/liqotech/liqo/pkg/utils/args"
 )
 
-const liqoctlOffloadNamespaceLongHelp = `Offload a namespace to remote clusters.
+const liqoctlOffloadNamespaceLongHelp = `Offload one or more namespaces to remote clusters.
 
 Once a given namespace is selected for offloading, Liqo extends it across the
 cluster boundaries, through the the automatic creation of twin namespaces in the
@@ -53,6 +54,10 @@ resource, that can later be applied through automation tools.
 Examples:
   $ {{ .Executable }} offload namespace foo
 or
+  $ {{ .Executable }} offload namespace foo bar
+or
+  $ {{ .Executable }} offload namespace --label-selector 'foo=bar'
+or
   $ {{ .Executable }} offload namespace foo --pod-offloading-strategy Remote --namespace-mapping-strategy EnforceSameName
 or (cluster labels in logical AND)
   $ {{ .Executable }} offload namespace foo --namespace-mapping-strategy EnforceSameName \
@@ -64,20 +69,6 @@ or (output the NamespaceOffloading resource as a yaml manifest, without applying
   $ {{ .Executable }} offload namespace foo --output yaml
 `
 
-const liqoctlOffloadNamespacesLongHelp = `Offload all namespaces with optional label filtering.
-
-This command offloads all namespaces in the cluster to remote clusters, optionally filtered by a label selector.
-It applies the same offloading configuration to each matching namespace, similar to 'liqoctl offload namespace <name>'.
-
-Examples:
-  $ {{ .Executable }} offload namespaces
-or
-  $ {{ .Executable }} offload namespaces --selector 'key=value'
-or
-  $ {{ .Executable }} offload namespaces --selector 'key=value,env!=prod' \
-      --pod-offloading-strategy Remote --namespace-mapping-strategy EnforceSameName
-`
-
 func newOffloadCommand(ctx context.Context, f *factory.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "offload",
@@ -87,77 +78,10 @@ func newOffloadCommand(ctx context.Context, f *factory.Factory) *cobra.Command {
 	}
 
 	utils.AddCommand(cmd, newOffloadNamespaceCommand(ctx, f))
-	utils.AddCommand(cmd, newOffloadNamespacesCommand(ctx, f))
 	return cmd
 }
 
 func newOffloadNamespaceCommand(ctx context.Context, f *factory.Factory) *cobra.Command {
-	var selectors []string
-
-	podOffloadingStrategy := args.NewEnum([]string{
-		string(offloadingv1beta1.LocalAndRemotePodOffloadingStrategyType),
-		string(offloadingv1beta1.RemotePodOffloadingStrategyType),
-		string(offloadingv1beta1.LocalPodOffloadingStrategyType)},
-		string(offloadingv1beta1.LocalAndRemotePodOffloadingStrategyType))
-
-	namespaceMappingStrategy := args.NewEnum([]string{
-		string(offloadingv1beta1.EnforceSameNameMappingStrategyType),
-		string(offloadingv1beta1.DefaultNameMappingStrategyType),
-		string(offloadingv1beta1.SelectedNameMappingStrategyType)},
-		string(offloadingv1beta1.DefaultNameMappingStrategyType))
-
-	var remoteNamespaceName = ""
-
-	outputFormat := args.NewEnum([]string{"json", "yaml"}, "")
-
-	options := offload.Options{Factory: f}
-	cmd := &cobra.Command{
-		Use:     "namespace name",
-		Aliases: []string{"ns"},
-		Short:   "Offload a namespace to remote clusters",
-		Long:    liqoctlOffloadNamespaceLongHelp,
-
-		Args:              cobra.ExactArgs(1),
-		ValidArgsFunction: completion.Namespaces(ctx, f, 1),
-
-		PreRun: func(_ *cobra.Command, _ []string) {
-			options.PodOffloadingStrategy = offloadingv1beta1.PodOffloadingStrategyType(podOffloadingStrategy.Value)
-			options.NamespaceMappingStrategy = offloadingv1beta1.NamespaceMappingStrategyType(namespaceMappingStrategy.Value)
-			options.RemoteNamespaceName = remoteNamespaceName
-			options.OutputFormat = outputFormat.Value
-			options.Printer.CheckErr(options.ParseClusterSelectors(selectors))
-		},
-
-		Run: func(_ *cobra.Command, args []string) {
-			options.Namespace = args[0]
-			output.ExitOnErr(options.Run(ctx))
-		},
-	}
-
-	cmd.Flags().Var(podOffloadingStrategy, "pod-offloading-strategy",
-		"The constraints regarding pods scheduling in this namespace, among Local, Remote and LocalAndRemote")
-	cmd.Flags().Var(namespaceMappingStrategy, "namespace-mapping-strategy",
-		"The naming strategy adopted for the creation of remote namespaces, among DefaultName, EnforceSameName and SelectedName")
-	cmd.Flags().DurationVar(&options.Timeout, "timeout", 20*time.Second, "The timeout for the offloading process")
-	cmd.Flags().StringVar(&remoteNamespaceName, "remote-namespace-name", "",
-		"The name of the remote namespace, required when using the SelectedName NamespaceMappingStrategy. "+
-			"Otherwise, it is ignored")
-
-	cmd.Flags().StringArrayVarP(&selectors, "selector", "l", []string{},
-		"The selector to filter the target clusters. Can be specified multiple times, defining alternative requirements (i.e., in logical OR)")
-
-	cmd.Flags().VarP(outputFormat, "output", "o",
-		"Output the resulting NamespaceOffloading resource, instead of applying it. Supported formats: json, yaml")
-
-	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("pod-offloading-strategy", completion.Enumeration(podOffloadingStrategy.Allowed)))
-	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("namespace-mapping-strategy", completion.Enumeration(namespaceMappingStrategy.Allowed)))
-	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("selector", completion.LabelsSelector(ctx, f, completion.NoLimit)))
-	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("output", completion.Enumeration(outputFormat.Allowed)))
-
-	return cmd
-}
-
-func newOffloadNamespacesCommand(ctx context.Context, f *factory.Factory) *cobra.Command {
 	var selectors []string
 	var labelSelector string
 
@@ -178,14 +102,13 @@ func newOffloadNamespacesCommand(ctx context.Context, f *factory.Factory) *cobra
 	outputFormat := args.NewEnum([]string{"json", "yaml"}, "")
 
 	options := offload.Options{Factory: f}
-
 	cmd := &cobra.Command{
-		Use:     "namespaces",
-		Aliases: []string{"ns"},
-		Short:   "Offload all namespaces with optional label filtering",
-		Long:    liqoctlOffloadNamespacesLongHelp,
+		Use:     "namespace name",
+		Aliases: []string{"ns", "namespaces"},
+		Short:   "Offload namespaces to remote clusters",
+		Long:    liqoctlOffloadNamespaceLongHelp,
 
-		Args: cobra.NoArgs,
+		ValidArgsFunction: completion.Namespaces(ctx, f, 1),
 
 		PreRun: func(_ *cobra.Command, _ []string) {
 			options.PodOffloadingStrategy = offloadingv1beta1.PodOffloadingStrategyType(podOffloadingStrategy.Value)
@@ -195,9 +118,16 @@ func newOffloadNamespacesCommand(ctx context.Context, f *factory.Factory) *cobra
 			options.LabelSelector = labelSelector
 			options.Printer.CheckErr(options.ParseClusterSelectors(selectors))
 		},
+		Run: func(_ *cobra.Command, args []string) {
+			if len(args) == 0 && labelSelector == "" {
+				output.ExitOnErr(fmt.Errorf("namespace name or label selector must be specified"))
+			}
+			if len(args) != 0 && labelSelector != "" {
+				output.ExitOnErr(fmt.Errorf("namespace name and label selector must not be specified together"))
+			}
 
-		Run: func(_ *cobra.Command, _ []string) {
-			output.ExitOnErr(options.OffloadNamespaces(ctx))
+			options.Namespaces = args
+			output.ExitOnErr(options.Run(ctx))
 		},
 	}
 

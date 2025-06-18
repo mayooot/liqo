@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,6 +40,7 @@ type Options struct {
 	*factory.Factory
 
 	Namespace                string
+	Namespaces               []string
 	LabelSelector            string
 	PodOffloadingStrategy    offloadingv1beta1.PodOffloadingStrategyType
 	NamespaceMappingStrategy offloadingv1beta1.NamespaceMappingStrategyType
@@ -75,6 +77,63 @@ func (o *Options) Run(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
 
+	var offloadNamespaces []string
+	offloadNamespaces = append(offloadNamespaces, o.Namespaces...)
+
+	if o.LabelSelector != "" {
+		// Parse the label selector
+		selector, err := labels.Parse(o.LabelSelector)
+		if err != nil && o.LabelSelector != "" {
+			return fmt.Errorf("invalid label selector: %w", err)
+		}
+
+		// List namespaces
+		var selectedNsList corev1.NamespaceList
+		if err := o.CRClient.List(ctx, &selectedNsList, &client.ListOptions{LabelSelector: selector}); err != nil {
+			return fmt.Errorf("cannot list namespace objects: %w", err)
+		}
+
+		for _, ns := range selectedNsList.Items {
+			if !slices.Contains(offloadNamespaces, ns.Name) {
+				offloadNamespaces = append(offloadNamespaces, ns.Name)
+			}
+		}
+	}
+
+	if len(offloadNamespaces) == 0 {
+		o.Printer.Info.Println("No namespaces can be offloaded")
+		return nil
+	}
+
+	// Offload each namespace
+	var errors []error
+	for _, ns := range offloadNamespaces {
+		// Create a new options instance for each namespace to avoid state pollution
+		nsOptions := &Options{
+			Factory:                  o.Factory,
+			Namespace:                ns,
+			PodOffloadingStrategy:    o.PodOffloadingStrategy,
+			NamespaceMappingStrategy: o.NamespaceMappingStrategy,
+			RemoteNamespaceName:      o.RemoteNamespaceName,
+			ClusterSelector:          o.ClusterSelector,
+			OutputFormat:             o.OutputFormat,
+			Timeout:                  o.Timeout,
+		}
+
+		if err := nsOptions.runOffload(ctx); err != nil {
+			errors = append(errors, err)
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("encountered %d errors during offloading, error details: %v", len(errors), errors)
+	}
+
+	return nil
+}
+
+// runOffload encapsulates the core logic of the offload namespace command.
+func (o *Options) runOffload(ctx context.Context) error {
 	// Output the NamespaceOffloading resource, instead of applying it.
 	if o.OutputFormat != "" {
 		o.Printer.CheckErr(o.output())
@@ -114,52 +173,6 @@ func (o *Options) Run(ctx context.Context) error {
 	waiter := wait.NewWaiterFromFactory(o.Factory)
 	if err := waiter.ForOffloading(ctx, o.Namespace); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-// OffloadNamespaces offloads all namespaces matching the label selector.
-func (o *Options) OffloadNamespaces(ctx context.Context) error {
-	// Parse the label selector
-	selector, err := labels.Parse(o.LabelSelector)
-	if err != nil && o.LabelSelector != "" {
-		return fmt.Errorf("invalid label selector: %w", err)
-	}
-
-	// List namespaces
-	var nsList corev1.NamespaceList
-	if err := o.CRClient.List(ctx, &nsList, &client.ListOptions{LabelSelector: selector}); err != nil {
-		return fmt.Errorf("cannot list namespace objects: %w", err)
-	}
-
-	if len(nsList.Items) == 0 {
-		o.Printer.Info.Println("No namespaces found matching the selector")
-		return nil
-	}
-
-	// Offload each namespace
-	var errors []error
-	for _, ns := range nsList.Items {
-		// Create a new options instance for each namespace to avoid state pollution
-		nsOptions := &Options{
-			Factory:                  o.Factory,
-			Namespace:                ns.Name,
-			PodOffloadingStrategy:    o.PodOffloadingStrategy,
-			NamespaceMappingStrategy: o.NamespaceMappingStrategy,
-			RemoteNamespaceName:      o.RemoteNamespaceName,
-			ClusterSelector:          o.ClusterSelector,
-			OutputFormat:             o.OutputFormat,
-			Timeout:                  o.Timeout,
-		}
-
-		if err := nsOptions.Run(ctx); err != nil {
-			errors = append(errors, err)
-		}
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("encountered %d errors during offloading", len(errors))
 	}
 
 	return nil
