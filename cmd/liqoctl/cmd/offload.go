@@ -16,7 +16,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -56,7 +55,7 @@ Examples:
 or
   $ {{ .Executable }} offload namespace foo bar
 or
-  $ {{ .Executable }} offload namespace --label-selector 'foo=bar'
+  $ {{ .Executable }} offload namespace --ns-selector 'foo=bar'
 or
   $ {{ .Executable }} offload namespace foo --pod-offloading-strategy Remote --namespace-mapping-strategy EnforceSameName
 or (cluster labels in logical AND)
@@ -108,7 +107,7 @@ func newOffloadNamespaceCommand(ctx context.Context, f *factory.Factory) *cobra.
 		Short:   "Offload namespaces to remote clusters",
 		Long:    liqoctlOffloadNamespaceLongHelp,
 
-		ValidArgsFunction: completion.Namespaces(ctx, f, 1),
+		ValidArgsFunction: completion.Namespaces(ctx, f, completion.NoLimit),
 
 		PreRun: func(_ *cobra.Command, _ []string) {
 			options.PodOffloadingStrategy = offloadingv1beta1.PodOffloadingStrategyType(podOffloadingStrategy.Value)
@@ -120,12 +119,11 @@ func newOffloadNamespaceCommand(ctx context.Context, f *factory.Factory) *cobra.
 		},
 		Run: func(_ *cobra.Command, args []string) {
 			if len(args) == 0 && labelSelector == "" {
-				output.ExitOnErr(fmt.Errorf("namespace name or label selector must be specified"))
+				options.Printer.ExitWithMessage("namespace name or label selector must be specified")
 			}
 			if len(args) != 0 && labelSelector != "" {
-				output.ExitOnErr(fmt.Errorf("namespace name and label selector must not be specified together"))
+				options.Printer.ExitWithMessage("namespace name and label selector must not be specified together")
 			}
-
 			options.Namespaces = args
 			output.ExitOnErr(options.Run(ctx))
 		},
@@ -142,7 +140,7 @@ func newOffloadNamespaceCommand(ctx context.Context, f *factory.Factory) *cobra.
 
 	cmd.Flags().StringArrayVarP(&selectors, "selector", "l", []string{},
 		"The selector to filter the target clusters. Can be specified multiple times, defining alternative requirements (i.e., in logical OR)")
-	cmd.Flags().StringVar(&labelSelector, "label-selector", "",
+	cmd.Flags().StringVar(&labelSelector, "ns-selector", "",
 		"Selector (label query) to filter namespaces, supports '=', '==', and '!=' (e.g., -l key1=value1,key2=value2).")
 
 	cmd.Flags().VarP(outputFormat, "output", "o",
@@ -151,7 +149,7 @@ func newOffloadNamespaceCommand(ctx context.Context, f *factory.Factory) *cobra.
 	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("pod-offloading-strategy", completion.Enumeration(podOffloadingStrategy.Allowed)))
 	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("namespace-mapping-strategy", completion.Enumeration(namespaceMappingStrategy.Allowed)))
 	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("selector", completion.LabelsSelector(ctx, f, completion.NoLimit)))
-	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("label-selector", completion.NamespacesSelector(ctx, f, completion.NoLimit)))
+	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("ns-selector", completion.NamespacesSelector(ctx, f, completion.NoLimit)))
 	f.Printer.CheckErr(cmd.RegisterFlagCompletionFunc("output", completion.Enumeration(outputFormat.Allowed)))
 
 	return cmd

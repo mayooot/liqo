@@ -15,6 +15,7 @@
 package offload
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -39,7 +40,6 @@ import (
 type Options struct {
 	*factory.Factory
 
-	Namespace                string
 	Namespaces               []string
 	LabelSelector            string
 	PodOffloadingStrategy    offloadingv1beta1.PodOffloadingStrategyType
@@ -108,19 +108,7 @@ func (o *Options) Run(ctx context.Context) error {
 	// Offload each namespace
 	var errors []error
 	for _, ns := range offloadNamespaces {
-		// Create a new options instance for each namespace to avoid state pollution
-		nsOptions := &Options{
-			Factory:                  o.Factory,
-			Namespace:                ns,
-			PodOffloadingStrategy:    o.PodOffloadingStrategy,
-			NamespaceMappingStrategy: o.NamespaceMappingStrategy,
-			RemoteNamespaceName:      o.RemoteNamespaceName,
-			ClusterSelector:          o.ClusterSelector,
-			OutputFormat:             o.OutputFormat,
-			Timeout:                  o.Timeout,
-		}
-
-		if err := nsOptions.runOffload(ctx); err != nil {
+		if err := o.runOffload(ctx, ns); err != nil {
 			errors = append(errors, err)
 		}
 	}
@@ -133,12 +121,14 @@ func (o *Options) Run(ctx context.Context) error {
 }
 
 // runOffload encapsulates the core logic of the offload namespace command.
-func (o *Options) runOffload(ctx context.Context) error {
+func (o *Options) runOffload(ctx context.Context, namespace string) error {
 	// Output the NamespaceOffloading resource, instead of applying it.
 	if o.OutputFormat != "" {
 		o.Printer.CheckErr(o.output())
 		return nil
 	}
+
+	o.Namespace = namespace
 
 	s := o.Printer.StartSpinner(fmt.Sprintf("Enabling namespace offloading for %q", o.Namespace))
 
@@ -181,6 +171,7 @@ func (o *Options) runOffload(ctx context.Context) error {
 // output implements the logic to output the generated NamespaceOffloading resource.
 func (o *Options) output() error {
 	var printer printers.ResourcePrinter
+	var buf bytes.Buffer
 	switch o.OutputFormat {
 	case "yaml":
 		printer = &printers.YAMLPrinter{}
@@ -199,6 +190,18 @@ func (o *Options) output() error {
 			RemoteNamespaceName:      o.RemoteNamespaceName,
 			ClusterSelector:          toNodeSelector(o.ClusterSelector),
 		},
+	}
+
+	// Print the object to a buffer to capture YAML output
+	if o.OutputFormat == "yaml" {
+		if err := printer.PrintObj(&nsoff, &buf); err != nil {
+			return err
+		}
+		if _, err := buf.WriteString("---\n"); err != nil {
+			return err
+		}
+		_, err := buf.WriteTo(os.Stdout)
+		return err
 	}
 
 	return printer.PrintObj(&nsoff, os.Stdout)
