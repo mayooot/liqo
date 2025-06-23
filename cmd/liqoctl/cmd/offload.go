@@ -124,6 +124,9 @@ func newOffloadNamespaceCommand(ctx context.Context, f *factory.Factory) *cobra.
 			if len(args) != 0 && labelSelector != "" {
 				options.Printer.ExitWithMessage("namespace name and label selector must not be specified together")
 			}
+			if (len(args) > 1 && labelSelector != "") && remoteNamespaceName != "" {
+				options.Printer.ExitWithMessage("the remote namespace name cannot be specified when offloading multiple namespaces at once")
+			}
 			options.Namespaces = args
 			output.ExitOnErr(options.Run(ctx))
 		},
