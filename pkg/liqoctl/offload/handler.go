@@ -124,7 +124,7 @@ func (o *Options) Run(ctx context.Context) error {
 func (o *Options) runOffload(ctx context.Context, namespace string) error {
 	// Output the NamespaceOffloading resource, instead of applying it.
 	if o.OutputFormat != "" {
-		o.Printer.CheckErr(o.output())
+		o.Printer.CheckErr(o.output(namespace))
 		return nil
 	}
 
@@ -169,21 +169,10 @@ func (o *Options) runOffload(ctx context.Context, namespace string) error {
 }
 
 // output implements the logic to output the generated NamespaceOffloading resource.
-func (o *Options) output() error {
-	var printer printers.ResourcePrinter
-	var buf bytes.Buffer
-	switch o.OutputFormat {
-	case "yaml":
-		printer = &printers.YAMLPrinter{}
-	case "json":
-		printer = &printers.JSONPrinter{}
-	default:
-		return fmt.Errorf("unsupported output format %q", o.OutputFormat)
-	}
-
+func (o *Options) output(namespace string) error {
 	nsoff := offloadingv1beta1.NamespaceOffloading{
 		TypeMeta:   metav1.TypeMeta{APIVersion: offloadingv1beta1.SchemeGroupVersion.String(), Kind: "NamespaceOffloading"},
-		ObjectMeta: metav1.ObjectMeta{Name: consts.DefaultNamespaceOffloadingName, Namespace: o.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: consts.DefaultNamespaceOffloadingName, Namespace: namespace},
 		Spec: offloadingv1beta1.NamespaceOffloadingSpec{
 			PodOffloadingStrategy:    o.PodOffloadingStrategy,
 			NamespaceMappingStrategy: o.NamespaceMappingStrategy,
@@ -192,8 +181,10 @@ func (o *Options) output() error {
 		},
 	}
 
-	// Print the object to a buffer to capture YAML output
-	if o.OutputFormat == "yaml" {
+	switch o.OutputFormat {
+	case "yaml":
+		var buf bytes.Buffer
+		printer := &printers.YAMLPrinter{}
 		if err := printer.PrintObj(&nsoff, &buf); err != nil {
 			return err
 		}
@@ -202,9 +193,12 @@ func (o *Options) output() error {
 		}
 		_, err := buf.WriteTo(os.Stdout)
 		return err
+	case "json":
+		printer := &printers.JSONPrinter{}
+		return printer.PrintObj(&nsoff, os.Stdout)
+	default:
+		return fmt.Errorf("unsupported output format %q", o.OutputFormat)
 	}
-
-	return printer.PrintObj(&nsoff, os.Stdout)
 }
 
 func toNodeSelector(selectors [][]metav1.LabelSelectorRequirement) corev1.NodeSelector {
