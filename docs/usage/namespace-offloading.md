@@ -18,6 +18,14 @@ A given namespace *foo* can be offloaded, leveraging the default configuration, 
 liqoctl offload namespace foo
 ```
 
+Similarly, multiple namespaces can be offloaded at once by specifying them together or using a namespace label selector:
+
+```bash
+liqoctl offload namespaces foo bar 
+
+liqoctl offload namespaces --ns-selector='foo=bar'
+```
+
 Alternatively, the underlying *NamespaceOffloading* resource can be generated and output (either in *yaml* or *json* format) leveraging the dedicated `--output` flag:
 
 ```bash
@@ -47,6 +55,7 @@ This approach ensures **naming transparency**, which is required by certain appl
 However, it can lead to **conflicts** in case a namespace with the same name already exists inside the selected remote clusters, ultimately causing the remote namespace creation request to be rejected.
 * **SelectedName**: you can specify the name of the remote namespace through the `--remote-namespace-name` flag.
 This flag is ignored in case the *namespace mapping strategy* is set to *DefaultName* or *EnforceSameName*.
+* **NamespaceLabelSelector**: you can specify which namespaces should be offloaded by using kubernetes namespace label selectors.
 
 More details and examples can be found in the following sections.
 
@@ -136,6 +145,10 @@ The offloading of a namespace can be disabled through the dedicated *liqoctl* co
 
 ```bash
 liqoctl unoffload namespace foo
+
+liqoctl unoffload namespaces foo bar 
+
+liqoctl unoffload namespaces --ns-selector='foo=bar'
 ```
 
 ```{warning}
