@@ -83,7 +83,7 @@ func (o *Options) Run(ctx context.Context) error {
 	if o.LabelSelector != "" {
 		// Parse the label selector
 		selector, err := labels.Parse(o.LabelSelector)
-		if err != nil && o.LabelSelector != "" {
+		if err != nil {
 			return fmt.Errorf("invalid label selector: %w", err)
 		}
 
