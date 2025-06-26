@@ -89,19 +89,17 @@ func (o *Options) Run(ctx context.Context) error {
 }
 
 func (o *Options) runUnoffload(ctx context.Context, namespace string) error {
-	o.Namespace = namespace
-
-	s := o.Printer.StartSpinner(fmt.Sprintf("Disabling namespace offloading for %q", o.Namespace))
+	s := o.Printer.StartSpinner(fmt.Sprintf("Disabling namespace offloading for %q", namespace))
 	nsoff := &offloadingv1beta1.NamespaceOffloading{ObjectMeta: metav1.ObjectMeta{
-		Name: consts.DefaultNamespaceOffloadingName, Namespace: o.Namespace}}
+		Name: consts.DefaultNamespaceOffloadingName, Namespace: namespace}}
 	if err := o.CRClient.Delete(ctx, nsoff); client.IgnoreNotFound(err) != nil {
 		s.Fail(fmt.Sprintf("Failed disabling namespace offloading: %v", err))
 		return err
 	}
-	s.Success(fmt.Sprintf("Offloading of namespace %q correctly disabled", o.Namespace))
+	s.Success(fmt.Sprintf("Offloading of namespace %q correctly disabled", namespace))
 
 	waiter := wait.NewWaiterFromFactory(o.Factory)
-	if err := waiter.ForUnoffloading(ctx, o.Namespace); err != nil {
+	if err := waiter.ForUnoffloading(ctx, namespace); err != nil {
 		return err
 	}
 

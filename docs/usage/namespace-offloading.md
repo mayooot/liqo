@@ -144,10 +144,13 @@ spec:
 The offloading of a namespace can be disabled through the dedicated *liqoctl* command, causing in turn the deletion of all resources reflected to remote clusters (including the namespaces themselves), and triggering the rescheduling of all offloaded pods locally:
 
 ```bash
+# unoffload single namespace by name
 liqoctl unoffload namespace foo
 
-liqoctl unoffload namespaces foo bar 
-
+# unoffload multiple namespaces by name
+liqoctl unoffload namespaces foo bar
+ 
+# unoffload multiple namespaces by label selector
 liqoctl unoffload namespaces --ns-selector='foo=bar'
 ```
 
